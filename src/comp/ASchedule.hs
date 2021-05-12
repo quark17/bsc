@@ -35,7 +35,7 @@ import ASyntaxUtil
 import Backend
 import Pragma
 import Util
-import ListUtil(mapFst)
+import ListUtil(mapFst, mapSnd)
 import Eval
 import Version(bscVersionStr)
 import Error(internalError, EMsg, WMsg, EMsgs(..), ErrMsg(..),
@@ -751,7 +751,7 @@ aSchedule_step1 errh flags prefix pps amod = do
       -- XXX create new conflict types for these?
       cfConflictEdgesAVArg =
           tr "let cfConflictEdgesAVArg" $
-          [ (mid, mid, [CUse uses])
+          [ (mid, mid, [CUse False uses])
                 | (mid, arg_uses) <- avmeth_arg_usemap,
                   not (S.null arg_uses),
                   let mkUse a = (MethodId emptyId a, MethodId emptyId a),
@@ -1895,7 +1895,7 @@ warnAndRecordArbitraryEarliness
                       res -> internalError ("isActionWithDiffArgs: uses: " ++
                                             ppReadable (m, res))
             in case (lookupUseConflict (r1, r2) cmap_cf) of
-                 Just (CUse call_pairs) ->
+                 Just (CUse _ call_pairs) ->
                      let same_calls = [i1 | (i1, i2) <- call_pairs, i1 == i2 ]
                      in filter isActionWithDiffArgs same_calls
                  _ -> []
@@ -2215,26 +2215,32 @@ mkEarlinessEdgesMethods flags ifcRuleNames userRuleNames =
 -- To say that an edge in the execution-order graph is only from execution
 -- node to execution node is bogus.  Similarly for the urgency graph.
 -- How do we fix this?
+--
 -- For execution order:
 --   When we analyze what methods are used by a rule, we DO have separate
 --   lists of which methods are used in the predicate and which in the body.
 --   When we create edges in the conflict map, we treat all uses as an
 --   atomic whole.  But we COULD create separate edges in the "combined"
 --   graph for uses in the predicate (scheduling) and uses in the body
---   (execution).  It turns out that we're ok leaving the edges as purely
---   being among the execution nodes.  Why?  The scheduling of a rule has
+--   (execution).  In the conflict-map, we don't go as far as keeping
+--   separate lists for the predicate and body uses (since this would
+--   require extra effort to union the two, for situations where the
+--   distinction is not needed); all that we record is whether, for a
+--   directional conflict, any uses (that participate in the conflict)
+--   in the later rule were predicate uses.  In that situation, we can
+--   create an edge from the ealier Exec node to the later Sched node;
+--   while, in all other situations, we can create an edge from Exec to
+--   Exec.  This turns out to be enough: the scheduling of a rule has
 --   to come before its execution, so an edge that says that the execution
 --   has to come before another rule is also enforcing that the scheduling
---   has to come before.  The only remaining case is an edge from the
---   execution of rule A to the scheduling of rule B, where currently the
---   edge is to the execution of rule B.  The only uses in rule B's
---   predicate are value methods.  So, given that value methods are
---   always conflict free with value methods, the only way that a method
---   call by rule A can effect rule B is by an action method with a path.
---   This situation we will take care of by adding edges to the combined
---   graph for paths.  It is ok to leave the existing edge (to the rule
---   execution), because an edge to the scheduling node implies an order
---   before the execution.
+--   has to come before.  (We didn't create Exec-to-Sched edges before,
+--   and just created them as Exec-to-Exec edges, arguing that predicate
+--   uses are value methods and so such an edge would only be created by
+--   paths, which are recorded in the urgency graph.  But that's not true;
+--   a value method could sequence after other methods because of a "rule
+--   between" situation, that could be a complicated path through the
+--   combined graph of the child module.)
+--
 -- For urgency order:
 --   The only problem in the urgency graph is in the accounting for paths
 --   (all other edges are legitimately about scheduling order).  But a
@@ -2279,10 +2285,14 @@ mkCombinedGraph ruleNames urgencyMap scGraphFinal scConflictMap sched_id_order u
         -- convert sc graph edges to CSN edges
         get_sc_edge pair = fromJustOrErr "mkSeqSchedule: sc lookup"
                                (G.lookup pair scConflictMap)
-        early_edges = [ (mkCSNExec sched_id_order i2, mkCSNExec sched_id_order i1, CSE_Conflict e)
+        is_pred_use (CUse True _) = True
+        is_pred_use _ = False
+
+        early_edges = [ (mkCSNExec sched_id_order i2, laterCSN sched_id_order i1, CSE_Conflict e)
                           | (i1,i2s) <- scGraphFinal, -- i2s SB i1
                             i2 <- i2s,
-                            let e = get_sc_edge (i1,i2) ]
+                            let e = get_sc_edge (i1,i2),
+                            let laterCSN = if (any is_pred_use e) then mkCSNSched else mkCSNExec]
 
         me_chk_edges = [ (mkCSNExec sched_id_order r0, mkCSNExec sched_id_order r1, CSE_Conflict [])
                           | (r1,r0) <- me_pairs]
@@ -3099,7 +3109,7 @@ makeRuleBetweenEdges ruleBetweenMap ruleMethodUseMap ruleNames sched_id_order =
         qualifyRuleId inst rule = addToBase inst rule
 
         -- avoid computing the same pair twice by folding over the list
-        checkOneRule :: [(ARuleId, (AExpr, M.Map AId [(AId, AExpr)]))] ->
+        checkOneRule :: [(ARuleId, (AExpr, M.Map AId [(Bool, (AId, AExpr))]))] ->
                         [(CSNode, [(CSNode, CSNode)])]
         checkOneRule ((r1, (_, r1_usemap)):rest) =
           let
@@ -3117,7 +3127,7 @@ makeRuleBetweenEdges ruleBetweenMap ruleMethodUseMap ruleNames sched_id_order =
                                           "r2_usemap: " ++ getIdString r2)
 
                     checkOneInstance ::
-                        (AId, [(AId, AExpr)]) ->
+                        (AId, [(Bool, (AId, AExpr))]) ->
                         -- Left indicates (r1,r2), Right indicates (r2,r1)
                         Maybe (Either ARuleId ARuleId)
                     checkOneInstance (inst, methods1) =
@@ -3143,8 +3153,8 @@ makeRuleBetweenEdges ruleBetweenMap ruleMethodUseMap ruleNames sched_id_order =
                                   | let m_methods2 = M.lookup inst r2_usemap,
                                     isJust m_methods2,
                                     let (Just methods2) = m_methods2,
-                                    (methId1, _) <- methods1,
-                                    (methId2, _) <- methods2,
+                                    (_, (methId1, _)) <- methods1,
+                                    (_, (methId2, _)) <- methods2,
                                     methId1 /= methId2,
                                     let m1 = MethodId inst methId1,
                                     let m2 = MethodId inst methId2
@@ -3885,12 +3895,14 @@ mkConflictMap flags dtstate rule_meth_map ncset ignore_conflicts =
           -- the set of conflicts
           if (ignore_conflicts rule1 rule2)
           then return (es, igns, dts)
-          else let cs = conflicts ncset usemap1 usemap2
+          else let bcs = conflicts ncset usemap1 usemap2
+                   ispred = any fst bcs
+                   cs = map snd bcs
                in if (null cs)
                   then return (es, igns, dts)
                   else if (not (schedConds flags))
                   then let cs' = map (\ ((m1,c1),(m2,c2)) -> (m1,m2)) cs
-                           es' = ((rule2, [CUse cs']):es)
+                           es' = ((rule2, [CUse ispred cs']):es)
                        in  return (es', igns, dts)
                   else do (cs', ignored, dts')
                               <- foldM (checkOneUse p1 p2) ([], False, dts) cs
@@ -3899,7 +3911,7 @@ mkConflictMap flags dtstate rule_meth_map ncset ignore_conflicts =
                                       else igns
                           if (null cs')
                             then return (es, igns', dts')
-                            else let es' = ((rule2, [CUse (reverse cs')]):es)
+                            else let es' = ((rule2, [CUse ispred (reverse cs')]):es)
                                  in  return (es', igns', dts')
 
         checkRule ::
@@ -3917,20 +3929,18 @@ mkConflictMap flags dtstate rule_meth_map ncset ignore_conflicts =
 
 -- ----------
 
-type MethodIdMap = M.Map AId [(AId, AExpr)]
-
 -- CONFLICTS of two uses wrt a no-conflict set
 -- XXX Ugly hack to ignore ready signals.  Should this be dealt
 -- XXX with elsewhere (AState.hs)?
 conflicts :: NoConflictSet -> MethodIdMap ->  MethodIdMap ->
-             [((MethodId, AExpr), (MethodId, AExpr))]
+             [(Bool, (((MethodId, AExpr), (MethodId, AExpr))))]
 conflicts (NoConflictSet ncset) us1 us2 =
     -- traces ( "conflicts: " ++ ppReadable us ++ ppReadable us' ) $
-    [ ((id1,c1), (id2,c2))
+    [ (ispred, ((id1,c1), (id2,c2)))
       | (obj, methset1) <- M.toList us1,
         (Just methset2) <- [M.lookup obj us2],
-        (m1,c1) <- methset1, not (isRdyId m1),
-        (m2,c2) <- methset2, not (isRdyId m2),
+        (ispred, (m1,c1)) <- methset1, not (isRdyId m1),
+        (_,      (m2,c2)) <- methset2, not (isRdyId m2),
         let id1 = MethodId obj m1,
         let id2 = MethodId obj m2,
         not $ (id1,id2) `S.member` ncset ]
@@ -4134,7 +4144,10 @@ type RulePCConflictUseMap = M.Map RuleId (AExpr, MethodUsesList, PCConflictPairs
 -- The rule's predicate is included to save the effort of looking it up
 -- when computing the full method call condition (the call condition AND'd
 -- with the rule's predicate).
-type RuleMethodUseMap = M.Map ARuleId (AExpr, M.Map AId [(AId, AExpr)])
+type RuleMethodUseMap = M.Map ARuleId (AExpr, MethodIdMap)
+
+-- Bool indicates whether it's a predicate use
+type MethodIdMap = M.Map AId [(Bool, (AId, AExpr))]
 
 -- ----------
 
@@ -4143,7 +4156,7 @@ makeRuleMethodUseMaps :: NoConflictSet -> RuleUsesMap ->
                           RulePCConflictUseMap)
 makeRuleMethodUseMaps (NoConflictSet setPC) ruleUseMap =
     let
-        full_use_map :: M.Map ARuleId (AExpr, M.Map Id (M.Map Id [UniqueUse]))
+        full_use_map :: M.Map ARuleId (AExpr, M.Map Id (M.Map Id [(Bool, UniqueUse)]))
         full_use_map = rumToMethodUseMap ruleUseMap
 
         -- Make a map from each rule to all the methods that rule calls,
@@ -4156,13 +4169,16 @@ makeRuleMethodUseMaps (NoConflictSet setPC) ruleUseMap =
           where
             convRuleUses (p, m) = (p, M.map (map convMethodUses . M.toList) m)
 
-            convMethodUses :: (AId, [UniqueUse]) -> (AId, AExpr)
-            convMethodUses (m, uus) = (m, aAnds (map extractCondition uus))
+            convMethodUses :: (AId, [(Bool, UniqueUse)]) -> (Bool, (AId, AExpr))
+            convMethodUses (m, puus) =
+              let uus = map snd puus
+                  ispred = any fst puus
+              in (ispred, (m, aAnds (map extractCondition uus)))
 
         -- convert the use-info into pc conflict info
         pc_conflict_map = M.map mkPCConflictInfo full_use_map
 
-        mkPCConflictInfo :: (AExpr, M.Map Id (M.Map Id [UniqueUse])) ->
+        mkPCConflictInfo :: (AExpr, M.Map Id (M.Map Id [(Bool, UniqueUse)])) ->
                             (AExpr, MethodUsesList, PCConflictPairsMap)
         mkPCConflictInfo (rp, usemap) =
           let
@@ -4170,7 +4186,7 @@ makeRuleMethodUseMaps (NoConflictSet setPC) ruleUseMap =
               -- more than once and conflict with themselves
               singleMethodConfls :: MethodUsesList
               singleMethodConfls =
-                  [ (m, uses)
+                  [ (m, map snd uses)
                       | -- find all methods that are used at least twice
                         (objId, mus) <- M.toList usemap,
                         p@(methId, uses@(_:_:_)) <- M.toList mus,
@@ -4183,12 +4199,13 @@ makeRuleMethodUseMaps (NoConflictSet setPC) ruleUseMap =
               -- which conflict
               pairMethodConfls :: PCConflictPairsMap
               pairMethodConfls =
-                  let makePairConfls instId uses =
+                  let makePairConfls instId p_use_map =
                           [ p |
+                              let uses = mapSnd (map snd) $ M.toList p_use_map,
                               -- find all pairs of used methods
                               -- (known to be on the same instance)
                               p@((methId1,uses1), (methId2,uses2))
-                                  <- uniquePairs (M.toList uses),
+                                  <- uniquePairs uses,
                               -- that conflict with each other
                               let m1 = MethodId instId methId1,
                               let m2 = MethodId instId methId2,
@@ -4483,7 +4500,7 @@ verifyStaticScheduleTwoRules errh flags gen_backend moduleId
     let
         -- avoid duplicate messages by applying to a whole list
         checkOneRule ::
-            [(ARuleId, (AExpr, M.Map AId [(AId, AExpr)]))] ->
+            [(ARuleId, (AExpr, M.Map AId [(Bool, (AId, AExpr))]))] ->
             [Either EMsg (ARuleId, ARuleId, [(MethodId, MethodId)])]
         checkOneRule ((r1, (_, r1_usemap)):rest) =
           let
@@ -4510,7 +4527,7 @@ verifyStaticScheduleTwoRules errh flags gen_backend moduleId
                                           "r2_usemap: " ++ getIdString r2)
 
                     checkOneInstance ::
-                        (AId, [(AId, AExpr)]) ->
+                        (AId, [(Bool, (AId, AExpr))]) ->
                         -- Left indicates (r1,r2), Right indicates (r2,r1)
                         [Either ((MethodId, MethodId), [ARuleId])
                                 ((MethodId, MethodId), [ARuleId])]
@@ -4528,8 +4545,8 @@ verifyStaticScheduleTwoRules errh flags gen_backend moduleId
                                   | let m_methods2 = M.lookup inst r2_usemap,
                                     isJust m_methods2,
                                     let (Just methods2) = m_methods2,
-                                    (methId1, _) <- methods1,
-                                    (methId2, _) <- methods2,
+                                    (_, (methId1, _)) <- methods1,
+                                    (_, (methId2, _)) <- methods2,
                                     methId1 /= methId2,
                                     let m1 = MethodId inst methId1,
                                     let m2 = MethodId inst methId2

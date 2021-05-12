@@ -135,6 +135,14 @@ getMIdObject (MethodId i _) = i
 -- ==============================
 -- Data Types: UniqueUse
 
+-- Unique method calls are either:
+--   * Action
+--     The AAction has a field 'aact_args' containing the condition
+--     of the call followed by the actual arguments to the call.
+--   * Expression
+--     The AExpr contains the arguments.  UseCond is information
+--     about the condition of the call.
+--
 data UniqueUse = UUAction AAction
                | UUExpr AExpr UseCond
      deriving (Eq, Ord, Show)
@@ -453,15 +461,16 @@ rumToObjectMap m =
 
 -- convert a RuleUseMap to a map from rule Id to the methods that
 -- the rule uses (grouped by submodule Id) mapped to their uses
+-- (and whether the use is in the rule's predicate)
 rumToMethodUseMap :: RuleUsesMap ->
-                     M.Map ARuleId (AExpr, M.Map Id (M.Map Id [UniqueUse]))
+                     M.Map ARuleId (AExpr, M.Map Id (M.Map Id [(Bool, UniqueUse)]))
 rumToMethodUseMap m =
     let usesToMethMap (pred, RuleUses preds domain range) =
-            let toE (e, c) = UUExpr e c
-                toA a = UUAction a
-                convE = M.map (M.map (map toE . M.toList)) . getMethodExprUses
+            let toE ispred (e, c) = (ispred, UUExpr e c)
+                toA a = (False, UUAction a)
+                convE ispred = M.map (M.map (map (toE ispred) . M.toList)) . getMethodExprUses
                 convA = M.map (M.map (map toA)) . getMethodActionUses
-            in  (pred, M.unionsWith (M.unionWith (++)) [convE preds, convE domain, convA range])
+            in  (pred, M.unionsWith (M.unionWith (++)) [convE True preds, convE False domain, convA range])
     in  M.map usesToMethMap m
 
 -- a map from the submodules that a rule calls methods on

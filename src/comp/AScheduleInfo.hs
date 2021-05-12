@@ -299,7 +299,7 @@ getRuleRelation (RuleRelationDB dset cmap) r1 r2 =
 -- -----
 
 data Conflicts =
-      CUse [(MethodId,MethodId)]
+      CUse Bool [(MethodId,MethodId)] -- Bool = contains pred uses
     | CCycle [ARuleId]
     | CMethodsBeforeRules
     | CUserEarliness Position
@@ -317,7 +317,7 @@ printConflicts use_pvprint d edge =
               then pvPrint d 0
               else pPrint d 0
     in  case (edge) of
-            (CUse uses) ->
+            (CUse _ uses) ->
                 let meths = vcat [pfp m1 <+> text "vs." <+> pfp m2
                                      | (m1, m2) <- uses]
                 in  fsep [s2par "calls to", nest 2 meths]
@@ -347,7 +347,7 @@ instance PVPrint Conflicts where
     pvPrint d p = printConflicts True d
 
 instance Hyper Conflicts where
-    hyper (CUse uses) y = hyper uses y
+    hyper (CUse b uses) y = hyper2 b uses y
     hyper (CCycle cycle_rules) y = hyper cycle_rules y
     hyper (CMethodsBeforeRules) y = y
     hyper (CUserEarliness pos) y = hyper pos y
@@ -395,7 +395,7 @@ unionRuleRelationInfo rri1 rri2 =
         unionMaybeWith fn m1        Nothing   = m1
         unionMaybeWith fn (Just v1) (Just v2) = Just (fn v1 v2)
 
-        unionCUse (CUse us1) (CUse us2) = CUse (us1 ++ us2)
+        unionCUse (CUse b1 us1) (CUse b2 us2) = CUse (b1 || b2) (us1 ++ us2)
         unionCUse c1 c2 = internalError ("unionCUse: " ++ ppReadable (c1, c2))
 
         -- XXX the info in c2 is lost

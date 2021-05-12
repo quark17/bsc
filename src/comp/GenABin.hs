@@ -31,7 +31,7 @@ import qualified Data.Map as M
 -- .ba file tag -- change this whenever the .ba format changes
 -- See also GenBin.header
 header :: [Byte]
-header = "bsc-20200713-1"
+header = "bsc-20210517-1"
 
 genABinFile :: ErrorHandle -> String -> ABin -> IO ()
 genABinFile errh fn abin =
@@ -434,7 +434,7 @@ instance Bin RuleRelationInfo where
            return (RuleRelationInfo mCF mSC mRes mCycle mPragma mArb)
 
 instance Bin Conflicts where
-    writeBytes (CUse mms)              = do putI 0; toBin mms
+    writeBytes (CUse b mms)            = do putI 0; toBin b; toBin mms
     writeBytes (CCycle rs)             = do putI 1; toBin rs
     writeBytes (CMethodsBeforeRules)   = do putI 2
     writeBytes (CUserEarliness pos)    = do putI 3; toBin pos
@@ -446,7 +446,7 @@ instance Bin Conflicts where
     readBytes =
         do i <- getI
            case i of
-            0 -> do mms <- fromBin; return (CUse mms)
+            0 -> do b <- fromBin; mms <- fromBin; return (CUse b mms)
             1 -> do rs <- fromBin; return (CCycle rs)
             2 -> return CMethodsBeforeRules
             3 -> do pos <- fromBin; return (CUserEarliness pos)

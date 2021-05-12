@@ -1808,10 +1808,10 @@ qualifyChildRuleRelationInfo inst rri =
     }
 
 qualifyChildConflicts :: String -> Conflicts -> Conflicts
-qualifyChildConflicts inst (CUse mpairs) =
+qualifyChildConflicts inst (CUse b mpairs) =
     let mapFn (m1, m2) = (qualifyChildMethodId inst m1,
                           qualifyChildMethodId inst m2)
-    in  CUse (map mapFn mpairs)
+    in  CUse b (map mapFn mpairs)
 qualifyChildConflicts inst (CCycle rIds) =
     CCycle (map (qualifyChildId inst) rIds)
 qualifyChildConflicts inst c@(CResource mId) =
