@@ -1,0 +1,46 @@
+package SizeOf_Union_If where
+
+-- =========================
+
+data Raw t = Raw (Bit (SizeOf t))
+  deriving (Bits)
+
+cook :: (Bits t tsz) => Raw t -> t
+cook (Raw x) = unpack x
+
+uncook :: (Bits t tsz) => t -> Raw t
+uncook x = Raw (pack x)
+
+-- =========================
+
+data T = T (Int 16) (UInt 16)
+  deriving (Bits)
+
+-- =========================
+
+interface Ifc =
+  m :: T
+
+{-# verilog sysSizeOf_Union_If #-}
+sysSizeOf_Union_If :: Module Empty
+sysSizeOf_Union_If = module
+  i :: Ifc <- mkSizeOf_Union_If_Sub
+
+  rules
+    "r": when True ==> action
+                         case i.m of
+                           (T v1 v2) -> $display "%h %h" v1 v2
+                         $finish 0
+
+{-# verilog mkSizeOf_Union_If_Sub #-}
+mkSizeOf_Union_If_Sub :: Module Ifc
+mkSizeOf_Union_If_Sub = module
+  cnd :: Reg Bool <- mkReg True
+  val :: Reg (Raw T) <- mkReg (uncook (T 0x1234 0xABCD))
+  let x :: Raw T
+      x = if cnd then val else _
+
+  interface
+    m = cook x
+
+-- =========================

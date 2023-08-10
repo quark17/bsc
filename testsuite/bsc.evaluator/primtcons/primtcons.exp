@@ -1,0 +1,17 @@
+# -------------------------
+# Tests for handling of SizeOf and TAdd/TMul/etc
+
+# -----
+# GitHub issue #593:
+# SizeOf in datatype field can be introduced in ISyntax by if-optimization
+
+# Test when the datatype is a union
+test_c_veri SizeOf_Union_If
+
+# Test when the datatype is a struct
+test_c_veri SizeOf_Struct_If
+
+# Test the similar (but simpler) situation with AddT instead of SizeOf
+test_c_veri TAdd_Union_If
+
+# -------------------------

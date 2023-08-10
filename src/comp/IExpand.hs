@@ -2886,6 +2886,22 @@ evalAp' e (T t : as) | not $ simpT t = do
   where simpT (ITNum _) = True
         simpT t = iGetKind t /= Just IKNum
 
+-- Instead of this big hammer, we do the reduction in improveIf
+-- where SizeOf can be introduced from datatype fields
+{-
+-- simplify non-numeric types containing SizeOf
+evalAp' e (T t : as) | containsSizeOf t = do
+    flags <- getFlags
+    symt <- getSymTab
+    case iConvT flags symt (iToCT t) of
+      t' | t' /= t-> evalAp "simpNumT" e (T t' : as)
+      _ -> -- XXX Is this a user error?
+           internalError ("could not resolve SizeOf: " ++ ppString t)
+  where containsSizeOf (ITAp (ITCon op _ _) _) | op == idSizeOf = True
+        containsSizeOf (ITAp f a) = containsSizeOf f || containsSizeOf a
+        containsSizeOf _ = False
+-}
+
 evalAp' f@(ICon i (ICDef t e)) as = do
         -- recurse into evaluating e
         step i
@@ -4363,10 +4379,21 @@ improveIf f t cnd (IAps (ICon i1 c1@(ICCon {conTagInfo = cti1})) ts1 es1)
                                                            -- because that test is otherwise buried in i1 == i2
                                                            = do
   when doTraceIf $ traceM ("improveIf ICCon triggered" ++ show i1 ++ show i2)
-  let realConType = itInst (iConType c1) ts1
+  flags <- getFlags
+  symt <- getSymTab
+  let
+      -- Get the type of the constructor as used here,
+      -- by substituing in the types from the context
+      realConType0 = itInst (iConType c1) ts1
+      -- Reduce any SizeOf operators in the type (because itInst won't)
+      realConType = iConvT flags symt (iToCT realConType0)
+      -- Get the argument types, which will become the types of the if-expressions
       (argTypes, _) = itGetArrows realConType
-  when (length argTypes /= length es1 || length argTypes /= length es2) $ internalError ("improveIf Con:" ++ ppReadable (argTypes, es1, es2))
-  (es', bs) <- mapAndUnzipM (\(t, e1, e2) -> improveIf f t cnd e1 e2) (zip3 argTypes es1 es2)
+  -- Confirm that the numbers of arguments and types match
+  when (length argTypes /= length es1 || length argTypes /= length es2) $
+      internalError ("improveIf Con:" ++ ppReadable (argTypes, es1, es2))
+  -- Construct if-expressions for each argument, and attempt simplification
+  (es', _) <- mapAndUnzipM (\(t, e1, e2) -> improveIf f t cnd e1 e2) (zip3 argTypes es1 es2)
   -- unambiguous improvement because the ICCon has propagated out
   return ((IAps (ICon i1 c1) ts1 es'), True)
 
@@ -4375,10 +4402,21 @@ improveIf f t cnd (IAps (ICon i1 c1@(ICTuple {})) ts1 es1)
                   (IAps (ICon i2 c2@(ICTuple {})) ts2 es2) -- tuple should match since types match
                                                              = do
   when doTraceIf $ traceM ("improveIf ICTuple triggered" ++ show i1 ++ show i2)
-  let realConType = itInst (iConType c1) ts1
+  flags <- getFlags
+  symt <- getSymTab
+  let
+      -- Get the type of the constructor as used here,
+      -- by substituing in the types from the context
+      realConType0 = itInst (iConType c1) ts1
+      -- Reduce any SizeOf operators in the type (because itInst won't)
+      realConType = iConvT flags symt (iToCT realConType0)
+      -- Get the argument types, which will become the types of the if-expressions
       (argTypes, _) = itGetArrows realConType
-  when (length argTypes /= length es1 || length argTypes /= length es2) $ internalError ("improveIf Con:" ++ ppReadable (argTypes, es1, es2))
-  (es', bs) <- mapAndUnzipM (\(t, e1, e2) -> improveIf f t cnd e1 e2) (zip3 argTypes es1 es2)
+  -- Confirm that the numbers of arguments and types match
+  when (length argTypes /= length es1 || length argTypes /= length es2) $
+      internalError ("improveIf Con:" ++ ppReadable (argTypes, es1, es2))
+  -- Construct if-expressions for each argument, and attempt simplification
+  (es', _) <- mapAndUnzipM (\(t, e1, e2) -> improveIf f t cnd e1 e2) (zip3 argTypes es1 es2)
   -- unambiguous improvement since the ICTuple has propagated out
   return ((IAps (ICon i1 c1) ts1 es'), True)
 

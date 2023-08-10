@@ -1,0 +1,46 @@
+package TAdd_Union_If where
+
+-- =========================
+
+data Raw sz = Raw (Bit (TAdd sz 1))
+  deriving (Bits);
+
+cook :: (Bits t tsz) => Raw tsz -> t
+cook (Raw x) = unpack (truncate x)
+
+uncook :: (Bits t tsz) => t -> Raw tsz
+uncook x = Raw (zeroExtend (pack x))
+
+-- =========================
+
+data T = T (Int 16) (UInt 16)
+  deriving (Bits)
+
+-- =========================
+
+interface Ifc =
+  m :: T
+
+{-# verilog sysTAdd_Union_If #-}
+sysTAdd_Union_If :: Module Empty
+sysTAdd_Union_If = module
+  i :: Ifc <- mkTAdd_Union_If_Sub
+
+  rules
+    "r": when True ==> action
+                         case i.m of
+                           (T v1 v2) -> $display "%h %h" v1 v2
+                         $finish 0
+
+{-# verilog mkTAdd_Union_If_Sub #-}
+mkTAdd_Union_If_Sub :: Module Ifc
+mkTAdd_Union_If_Sub = module
+  cnd :: Reg Bool <- mkReg True
+  val :: Reg (Raw 32) <- mkReg (uncook (T 0x1234 0xABCD))
+  let x :: Raw 32
+      x = if cnd then val else _
+
+  interface
+    m = cook x
+
+-- =========================

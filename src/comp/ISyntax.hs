@@ -93,12 +93,12 @@ import Eval
 import Id
 import Wires(ResetId, ClockDomain, ClockId, noClockId, noResetId, noDefaultClockId, noDefaultResetId, WireProps)
 import IdPrint
-import PreIds(idSizeOf, idId, idBind, idReturn, idPack, idUnpack, idMonad, idLiftModule, idBit, idFromInteger)
+import PreIds(idId, idBind, idReturn, idPack, idUnpack, idMonad, idLiftModule, idBit, idFromInteger)
 import Backend
 import Prim(PrimOp(..))
 import NumType
 import ConTagInfo
-import VModInfo(VModInfo, vArgs, vName, VName(..), {- VeriPortProp(..), -}
+import VModInfo(VModInfo, vArgs, vName, VName(..),
                 VArgInfo(..), VFieldInfo(..), isParam, VWireInfo)
 import Pragma(Pragma, PProp, RulePragma, ISchedulePragma,
               CSchedulePragma, SchedulePragma(..), DefProp,
@@ -419,6 +419,8 @@ tSubst v x t = sub t
         vs = fvx `S.union` aTVars' t
 
 normITAp :: IType -> IType -> IType
+
+-- Reduce numeric type operators
 normITAp (ITAp (ITCon op _ _) (ITNum x)) (ITNum y) | isJust (res) =
     mkNumConT (fromJust res)
   where res = opNumT op [x, y]
@@ -426,12 +428,17 @@ normITAp (ITCon op _ _) (ITNum x) | isJust (res) =
     mkNumConT (fromJust res)
   where res = opNumT op [x]
 
+-- Reduce SizeOf operator
+-- The instance table isn't available here, so we can't do anything
+{-
 normITAp f@(ITCon op _ _) a | op == idSizeOf && notVar a =
         -- trace ("normITAp: " ++ ppReadable (ITAp f a)) $
            ITAp f a
   where notVar (ITVar _) = False
         notVar _ = True
+-}
 
+-- Reduce Id__ operator
 normITAp f@(ITCon op _ _) a | op == idId = a
 
 normITAp f a = ITAp f a
