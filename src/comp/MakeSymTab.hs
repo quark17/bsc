@@ -31,9 +31,9 @@ import CSyntax
 import CSyntaxUtil(isEnum)
 import SymTab
 import CType
-import CFreeVars(getFTCDn, getVDefIds, getFTyCons)
+import CFreeVars(getFTCDn, getVDefIds, getFTyCons, getCPTyVarsT)
 import StdPrel
-import InferKind(inferKinds)
+import InferKind(inferKinds, inferCPred)
 import Type(fn, tArrow, HasKind(..))
 import Pred
 import Scheme
@@ -46,7 +46,7 @@ import Unify
 import IOUtil(progArgs)
 import Util
 import SCC(tsort)
-import Debug.Trace(traceM)
+import Debug.Trace(traceM, trace)
 
 doTraceKI :: Bool
 doTraceKI = "-trace-kind-inference" `elem` progArgs
@@ -765,7 +765,7 @@ getCls errh mi iks r incoh ps ik vs fds ifs qts =
         i = iKName ik
         ks = getNK (genericLength vs) k
         tvs = zipWith tVarKind vs ks
-        conv ct = case convCTypeAssumps r (zip vs ks) ct of
+        sups = case convCPreds r iks vs ks ps of
                   Left msg -> bsErrorUnsafe errh [msg]
                   Right t -> t
         bss = genBss vs fds
@@ -783,7 +783,7 @@ getCls errh mi iks r incoh ps ik vs fds ifs qts =
         c = Class {
          name = CTypeclass qi,
          csig = tvs,
-         super = [ (c, IsIn (mustFindClass r c) (map conv ts)) | CPred c ts <- ps ],
+         super = sups,
          genInsts = \ _ _ _ -> map (doInst r c) qinsts,
          tyConOf = TyCon qi (Just k)
                    (TIstruct SClass (map cf_name ifs ++
@@ -793,7 +793,26 @@ getCls errh mi iks r incoh ps ik vs fds ifs qts =
          allowIncoherent = incoh,
          isComm = False
          }
-    in  (c, errs)
+
+        errs' =
+          {-
+          trace("getCls mi iks: " ++ ppReadable (mi, iks)) $
+          trace("getCls qi: " ++ ppReadable qi) $
+          trace("getCls tvs: " ++ ppReadable tvs) $
+          trace("getCls ts: " ++ ppReadable [ts | CPred _ ts <- ps])  $
+          trace("getCls ps:" ++ ppReadable [ ci | CPred ci ts <- ps ])
+          trace("getCls ps:" ++ ppReadable [ (name c, csig c, funDeps c, funDeps2 c)
+                                           | CPred ci ts <- ps
+                                           , let mc = findSClass r ci
+                                           , let c = fromJustOrErr "getCls mc" mc
+                                           ])
+          --trace("getCls ps: " ++ ppReadable ps) $
+          trace("getCls vs ks: " ++ ppReadable (zip vs ks)) $
+          trace("getCls super: " ++ ppReadable [ (c, ts) | (c, IsIn _ ts) <- (super c) ]) $
+          -}
+          errs
+    in
+      (c, errs')
 
 -- ---------------
 
@@ -902,6 +921,40 @@ convCTypeAssumps :: SymTab -> [(Id, Kind)] -> CType -> Either EMsg Type
 convCTypeAssumps r as ct = K.run $ do
     (ct', _) <- trCType r as ct
     return ct'
+
+convCPreds :: SymTab -> M.Map Id Kind -> [Id] -> [Kind] -> [CPred] -> Either EMsg [(CTypeclass, Pred)]
+convCPreds _ _ _ _ [] = Right []
+convCPreds r iks vs ks ps = K.run $ do
+    let notBaseTyVar tyvar = (tv_name tyvar) `notElem` vs
+        pvs = filter notBaseTyVar (S.toList (S.unions (map getCPTyVarsT ps)))
+        base_as = zip vs ks
+    -- null iks indicates that this is the initial pass to constract the symtab
+    -- and the typeclass info is not needed
+    -- XXX lift this earlier? return an internalerror?
+    as <- if (M.null iks) || (null pvs)
+          then return base_as
+          else do
+            --traceM("convCPreds here1 pvs: " ++ ppReadable pvs)
+            super_as <- mkTyVarAssumps pvs
+            let as' = base_as ++ super_as
+            --traceM("convCPreds here1 as: " ++ ppReadable as)
+            --traceM("convCPreds here1 iks: " ++ ppReadable (M.toList iks))
+            mapM_ (inferCPred (map_insertMany as' iks)) ps
+            --traceM("convCPreds here2")
+            return as'
+
+    -- Now it's safe to translate (which is kind of repeating the work?)
+    let convCType ct = do
+          (ct', _) <- trCType r as ct
+          return ct'
+        convCPred (CPred c cts) = do
+          cts' <- mapM convCType cts
+          s <- K.getKSubst
+          return (c, IsIn (mustFindClass r c) (map (groundT s) cts'))
+
+    res <- mapM convCPred ps
+    --traceM("convCPreds here3 res: " ++ ppReadable (map fst res))
+    return res
 
 -- -----
 

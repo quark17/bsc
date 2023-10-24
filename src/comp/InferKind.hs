@@ -1,5 +1,5 @@
 {-# LANGUAGE PatternGuards #-}
-module InferKind(inferKinds) where
+module InferKind(inferKinds, inferCPred) where
 import Data.List((\\))
 import qualified Data.Set as S
 import qualified Data.Map as M

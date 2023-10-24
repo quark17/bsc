@@ -30,6 +30,7 @@ module CFreeVars (
                   getFQTyVars,  -- returns the unique names
                   getFQTyVarsT, -- returns the unique TyVar (includes kind etc)
                   getCPTyVars,  -- like getFQTyVars but for CPred
+                  getCPTyVarsT, -- like getFQTyVarsT but for CPred
 
                   -- get the names of toplevel CDefn
                   getVDefIds
