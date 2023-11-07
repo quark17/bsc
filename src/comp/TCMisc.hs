@@ -44,7 +44,7 @@ import Literal
 import IntLit
 import SymTab
 import MakeSymTab(convCQType)
-import PreStrings(sAcute)
+import PreStrings(sAcute, fsPrelude, fsPreludeBSV)
 import IOUtil(progArgs)
 import Debug.Trace
 
@@ -321,9 +321,10 @@ sat dvs ps p =
        let this_point :: TSSatElement
            this_point = (mkTSSatElement dvs ps p)
        incrementSatStack this_point
-       return_val <- case lookfor bound_tyvars p (concatMap bySuperE ps) of
+       ps' <- concatMapM bySuperE ps
+       return_val <- case lookfor bound_tyvars p ps' of
          Just (bs, (s, [])) -> do
-             satTrace ("sat in super: " ++ ppReadable (p, concatMap bySuperE ps)) $ return ()
+             satTrace ("sat in super: " ++ ppReadable (p, ps', bs, s)) $ return ()
              return ([], bs, s)
          -- we might introduce a numeric equality here, so try instance reduction first
          m_equals -> do
@@ -331,7 +332,7 @@ sat dvs ps p =
           let fail msg =
                 case m_equals of
                   Just (bs, (s, num_eqs)) -> do
-                    satTrace ("sat in super (num eq): " ++ ppReadable (p, concatMap bySuperE ps, num_eqs)) $ return ()
+                    satTrace ("sat in super (num eq): " ++ ppReadable (p, ps', num_eqs)) $ return ()
                     eq_ps <- mapM (eqToVPred (getVPredPositions p)) num_eqs
                     satMany (dvsSub s dvs) (apSub s ps) [] bs s eq_ps
                   Nothing -> satTrace msg $ return ([p], [], nullSubst)
@@ -618,16 +619,43 @@ commute ts@[t1,t2] = [t2, t1]
 commute ts@[t1,t2,t3] = [t2, t1, t3]
 commute _ = internalError("commutative class not taking two or three arguments")
 
-bySuperE :: EPred -> [EPred]
-bySuperE ep@(EPred e p@(IsIn c ts)) = ep : eps ++ comm
-  where s       = mkSubst (zip (csig c) ts)
+bySuperE :: EPred -> TI [EPred]
+bySuperE ep@(EPred e p@(IsIn c ts)) = do
+  -- type variables in the class
+  let c_tvs = csig c
+  -- type variables in superclasses that are not in the base class
+  let sup_tvs = let ps = map snd (super c)
+                in  filter (`notElem` c_tvs) (tv ps)
+  -- create fresh variables to replace them
+  -- XXX If bySuperE is called separately each time a proviso is resolved,
+  -- XXX and if superclasses share some of these variables, then the same
+  -- XXX names need to be use each time, so that info learned from resolving
+  -- XXX one pred is used when resolving others
+  fresh_sup_ts <- mapM (\ v -> newTVar "bySuperE" (kind v) v) sup_tvs
+  -- subsitution to be applied to the superclasses
+  -- replacing the base variables with their instantiated types
+  -- and the non-base variables with the fresh variables
+  let   s = mkSubst (zip c_tvs ts ++ zip sup_tvs fresh_sup_ts)
         esupers = map (\ (CTypeclass i, p) ->
                         let p' = apSub s p
                         in  EPred (CApply (cTApply (CSelectT (typeclassId $ name c) i) ts) [e]) p') (super c)
-        eps     = concatMap bySuperE esupers
+        -- bySuperE returns a list of what preds are known to be solveable
+        -- and they are matched structurally against the to-be-resolved preds
+        -- so this constructs both (Add x y z) and (Add y x z)
         comm    = if (isComm c) then {- (traces ("expr: " ++ ppReadable e) $-}
                      [(EPred e (IsIn c (commute ts)))]
                   else []
+  eps <- concatMapM bySuperE esupers
+  -- XXX We also need to include variants where the fresh type variables
+  -- XXX are replaced with type variables from other resolved preds
+  -- XXX e.g. if (Bits T ty1) has been solved, and the superclass has (Bits T _t, Add _t _k 32)
+  -- XXX then we need to also include (Add ty1 _k 32) !
+  let res = (ep : eps ++ comm)
+  let notPreId i = (getIdQual i /= fsPrelude) && (getIdQual i /= fsPreludeBSV)
+      notPreClass (CTypeclass i) = notPreId i
+  when (notPreClass (name c)) $
+    traceM ("bySuperE: " ++ ppReadable (c, s, esupers, res))
+  return res
 
 -- Given:
 -- * bound variables
@@ -1340,6 +1368,7 @@ defaultClasses fixedVars givenPreds unsatisfiedPreds =
                     | v `elem` defaulted_vars = [(getPosition v, EUnknownSize)]
                     | otherwise = []
                 msgs = nub $ concatMap (mkNumError . fst) num_defaults
+            when (not $ null msgs) $ traceM ("eunknown1: " ++ ppReadable (fixedVars, givenPreds, unsatisfiedPreds, preds_to_default))
             when (not $ null msgs) $ errs "defaultClasses unknown size" msgs
 
             -- simplify, given what we know

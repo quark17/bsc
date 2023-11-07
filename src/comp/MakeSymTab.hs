@@ -20,7 +20,7 @@ import qualified Data.Map as M
 import Data.Either(partitionEithers)
 import FStringCompat(concatFString)
 import PFPrint
-import PreStrings(fsTilde)
+import PreStrings(fsTilde, fsPrelude, fsPreludeBSV)
 import PreIds
 import Id
 -- for PPrint and PVPrint Id instances
@@ -451,6 +451,8 @@ convInst errh mi r di@(Cinstance qt@(CQType _ t) ds) =
                 bnd (pos, t) =
                         let tc = fromJustOrErr "convInst bnd: leftCon" (leftCon t)
                             ts = tyConArgs t
+                            -- XXX If 'ts' refers to variables from other preds,
+                            -- XXX they need to be included here
                             cqt = CQType [CPred (CTypeclass tc) ts] noType
                         in  (setIdPosition pos (unQualId tc),
                              -- XXX Lennart's comment: hacky encoding of dict
@@ -795,22 +797,17 @@ getCls errh mi iks r incoh ps ik vs fds ifs qts =
          }
 
         errs' =
-          {-
-          trace("getCls mi iks: " ++ ppReadable (mi, iks)) $
-          trace("getCls qi: " ++ ppReadable qi) $
-          trace("getCls tvs: " ++ ppReadable tvs) $
-          trace("getCls ts: " ++ ppReadable [ts | CPred _ ts <- ps])  $
-          trace("getCls ps:" ++ ppReadable [ ci | CPred ci ts <- ps ])
-          trace("getCls ps:" ++ ppReadable [ (name c, csig c, funDeps c, funDeps2 c)
-                                           | CPred ci ts <- ps
-                                           , let mc = findSClass r ci
-                                           , let c = fromJustOrErr "getCls mc" mc
-                                           ])
-          --trace("getCls ps: " ++ ppReadable ps) $
-          trace("getCls vs ks: " ++ ppReadable (zip vs ks)) $
-          trace("getCls super: " ++ ppReadable [ (c, ts) | (c, IsIn _ ts) <- (super c) ]) $
-          -}
-          errs
+          let notPreId i = (getIdQual i /= fsPrelude) && (getIdQual i /= fsPreludeBSV)
+              doTrace x = if notPreId qi then
+                            --trace("getCls mi iks: " ++ ppReadable (mi, iks)) $
+                            trace("getCls qi: " ++ ppReadable qi) $
+                            trace("getCls tvs: " ++ ppReadable tvs) $
+                            trace("getCls ps: " ++ ppReadable ps) $
+                            trace("getCls sups: " ++ ppReadable sups) $
+                            x
+                          else x
+          in doTrace errs
+
     in
       (c, errs')
 

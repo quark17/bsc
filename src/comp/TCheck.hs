@@ -2445,6 +2445,10 @@ tiExpl''' as0 i sc alts me (oqt@(oqs :=> ot), vts) = do
         lvs        =  tv qt'                        -- local tyvars
         avs        =  lvs `union` fvs                -- all tyvars
 
+
+    when (not (null ps')) $ do
+      traceM ("tiexpl: " ++ ppReadable (eqs, ps, ps', bs2, fvs0, fvs))
+
     ----
 
     -- The "dvs" argument to "satisfyFV"
