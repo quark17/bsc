@@ -58,7 +58,7 @@ jobs:
     with:
       os: ubuntu-22.04
       ghc_version: 9.10.1
-      hls_version: 2.7.0.0
+      hls_version:
     secrets: inherit
 
   build-and-test-ghc-latest-macos:
@@ -67,7 +67,7 @@ jobs:
     with:
       os: macos-14
       ghc_version: 9.10.1
-      hls_version: 2.7.0.0
+      hls_version:
     secrets: inherit
 
   build-doc-ubuntu:
