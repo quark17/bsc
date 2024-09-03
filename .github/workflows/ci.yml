@@ -17,7 +17,5 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          ls /opt/homebrew || true
-          brew install -v --cask mactex-no-gui || true
-          tail -100 /var/log/install.log
-          ls /opt/homebrew/var/log || true
+          brew install texlive
+          #tail -100 /var/log/install.log
