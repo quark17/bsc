@@ -9,17 +9,15 @@ jobs:
   # Test the building of documentation
 
   build-doc-macOS:
-    strategy:
-      matrix:
-        os: [ macos-14 ]
-      fail-fast: false
-    name: "Build doc: ${{ matrix.os }}"
-    runs-on: ${{ matrix.os }}
+    name: "Build doc"
+    runs-on: macos-14
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
         shell: bash
         run: |
-          brew update
-          brew install -v mactex-no-gui
+          ls /opt/homebrew || true
+          brew install -v --cask mactex-no-gui || true
+          tail -100 /var/log/install.log
+          ls /opt/homebrew/var/log || true
