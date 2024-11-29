@@ -2679,7 +2679,9 @@ proc test_c_veri_worker_int { top sysmod modules extension doC doV gen_options l
 
         check_verilog_output $outfile $expected $veribug
 
-        if { $check_vcd == 1 } {
+        # There is currently no need for re-running the Verilog sim with VCD
+        #if { $check_vcd == 1 }
+        if { 0 } {
             if { $veribug == "" } {
                 sim_verilog_vcd $sysmod $sim_options
             } else {
