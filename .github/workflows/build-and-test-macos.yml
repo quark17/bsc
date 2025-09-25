@@ -19,6 +19,10 @@ on:
         required: false
         default: false
         type: boolean
+      brew_install_flags:
+        required: false
+        default:
+        type: string
 
 jobs:
   build-macOS:
@@ -35,6 +39,8 @@ jobs:
           git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
       - name: Install dependencies
         shell: bash
+        env:
+          BREW_INSTALL_FLAGS: ${{ inputs.brew_install_flags }}
         run: |
           .github/workflows/install_dependencies_macos.sh
           # If the runner doesn't have 'ghcup', install it
@@ -140,6 +146,8 @@ jobs:
 
       - name: Install dependencies
         shell: bash
+        env:
+          BREW_INSTALL_FLAGS: ${{ inputs.brew_install_flags }}
         run: ".github/workflows/install_dependencies_testsuite_macos.sh"
 
       - name: Download bsc
@@ -286,6 +294,8 @@ jobs:
 
       - name: Install dependencies
         shell: bash
+        env:
+          BREW_INSTALL_FLAGS: ${{ inputs.brew_install_flags }}
         run: ".github/workflows/install_dependencies_testsuite_macos.sh"
 
       - name: Download bsc
@@ -379,6 +389,8 @@ jobs:
 
       - name: Install dependencies
         shell: bash
+        env:
+          BREW_INSTALL_FLAGS: ${{ inputs.brew_install_flags }}
         run: "../bdw/.github/workflows/install_dependencies_testsuite_macos.sh"
 
       # Restore previous ccache cache of compiled object files. Use a SHA

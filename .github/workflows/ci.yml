@@ -53,10 +53,12 @@ jobs:
       matrix:
         os: [ macos-14, macos-15 ]
         timeout_override: [ false ]
+        brew_install_flags: [ '' ]
         include:
           # Homebrew no longer supports macOS 13, so installs are slow
           - os: macos-13
             timeout_override: true
+            brew_install_flags: --force
       fail-fast: false
     name: "Build/Test: ${{ matrix.os }}"
     uses: ./.github/workflows/build-and-test-macos.yml
@@ -65,6 +67,7 @@ jobs:
       ghc_version: 9.6.7
       hls_version: 2.10.0.0
       timeout_override: ${{ matrix.timeout_override }}
+      brew_install_flags: ${{ matrix.brew_install_flags }}
     secrets: inherit
 
   # ------------------------------
