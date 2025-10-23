@@ -29,7 +29,11 @@ jobs:
              make
              binutils
              autoconf
+             flex
+             bison
              mingw-w64-ucrt-x86_64-gcc
+             mingw-w64-ucrt-x86_64-gperf
+             mingw-w64-ucrt-x86_64-iverilog
              mingw-w64-ucrt-x86_64-pkg-config
              mingw-w64-ucrt-x86_64-tcl
 #      - name: Set up Haskell
@@ -56,6 +60,8 @@ jobs:
           which tclsh || echo fail
           echo "----- which ghc"
           which ghc || echo fail
+          echo "----- ghc --version"
+          ghc --version || echo fail
           echo "----- which ghcup"
           which ghcup || echo fail
           echo "----- OSTYPE"
@@ -73,7 +79,18 @@ jobs:
           echo "----- CXX_SHARED_FLAGS"
           ./platform.sh c++_shared_flags || echo fail
           echo "----- Done"
+      - name: Cabal dependencies
+        run: |
+          export PATH=$PATH:/c/ghcup/bin:$(echo /c/tools/ghc-*/bin || echo)
+          cabal update
+          cabal v1-install regex-compat syb old-time split
+      - name: Checkout submodules
+        shell: bash
+        run: |
+          auth_header="$(git config --local --get http.https://github.com/.extraheader)"
+          git submodule sync --recursive
+          git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
       - name: Build
         run: |
           export PATH=$PATH:/c/ghcup/bin:$(echo /c/tools/ghc-*/bin || echo)
-          make install-src
+          make STP_STUB=1 install-src
