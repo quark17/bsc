@@ -8,6 +8,10 @@ REPONAME=yices2
 YICES_SRC=$(REPONAME)
 YICES_INST=$(abspath $(PWD)/$(REPONAME)-inst)
 
+ifeq ($(OSTYPE), Mingw)
+BUILD_ARGS=OPTION=mingw64
+CONFIGURE_FLAGS=--host=x86_64-pc-mingw64
+else
 ifeq ($(OSTYPE), Darwin)
 # On macOS we need to work around three yices build issues:
 # 1. yices explicitly sets the install_name for libyices.2.dylib to be
@@ -35,6 +39,7 @@ CONFIGURE_ENV= \
 LIBGMPA=$(LIBDIRGMP)/libgmp.a
 BUILD_ARGS=libyices_install_name=libyices.2.dylib LIBS=$(LIBGMPA)
 endif
+endif
 
 .PHONY: all
 all: install
@@ -44,7 +49,7 @@ install:
 ifeq ($(YICES_STUB),)
 	(cd $(YICES_SRC) ; \
 		autoconf ; \
-		$(CONFIGURE_ENV) ./configure --prefix=$(YICES_INST) ; \
+		$(CONFIGURE_ENV) ./configure --prefix=$(YICES_INST) $(CONFIGURE_FLAGS); \
 		$(MAKE) $(BUILD_ARGS); \
 		$(MAKE) install \
 		)
