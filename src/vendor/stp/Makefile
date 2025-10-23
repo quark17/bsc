@@ -24,4 +24,4 @@ clean:
 
 full_clean:
 	$(MAKE) -C $(SRC) full_clean
-	rm -f include_hs
+	rm -rf include_hs

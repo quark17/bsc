@@ -19,6 +19,8 @@ endif
 
 install:
 	$(MAKE) -C $(VERSION) install
+	# ln -fn is implementation-defined, use rm -rf before ln
+	rm -rf include lin include_hs
 	ln -fsn $(VERSION)/include
 	ln -fsn $(VERSION)/lib
 	ln -fsn $(VERSION)/include_hs
@@ -30,5 +32,5 @@ clean:
 
 full_clean:
 	$(MAKE) -C $(VERSION) full_clean
-	rm -f include lib include_hs
+	rm -rf include lib include_hs
 
