@@ -9,7 +9,7 @@ YICES_SRC=$(REPONAME)
 YICES_INST=$(abspath $(PWD)/$(REPONAME)-inst)
 
 ifeq ($(OSTYPE), Mingw)
-BUILD_ARGS=OPTION=mingw64
+#BUILD_ARGS=OPTION=mingw64
 CONFIGURE_FLAGS=--host=x86_64-pc-mingw64
 else
 ifeq ($(OSTYPE), Darwin)

@@ -1,0 +1,28 @@
+diff --git a/Makefile b/Makefile
+index 199c1146..e566b57c 100644
+--- a/Makefile
++++ b/Makefile
+@@ -181,6 +181,15 @@ ifneq ($(OPTION),)
+     endif
+     endif
+   else
++  ifeq ($(POSIXOS),mingw)
++    ifeq ($(OPTION),mingw64)
++      newarch=$(subst i386,x86_64,$(ARCH))
++    else
++    ifeq ($(OPTION),mingw32)
++      newarch=$(subst x86_64,i386,$(ARCH))
++    endif
++    endif
++  else
+   ifeq ($(POSIXOS),sunos)
+     ifeq ($(OPTION),64bits)
+       newarch=$(subst sparc,sparc64,$(ARCH))
+@@ -194,6 +203,7 @@ ifneq ($(OPTION),)
+   endif
+   endif
+   endif
++  endif
+ 
+   ifeq ($(newarch),)
+     $(error "option $(OPTION) not supported on platform $(ARCH)")
