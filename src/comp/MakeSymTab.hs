@@ -85,10 +85,10 @@ mkSymTab errh (CPackage mi _ imps _ ds _) =
 
         cls_fd = -- classes are exported both concretely and abstractly
                  [ (iKName ik, vs, fds) | CImpSign _ _ (CSignature _ _ _ ids) <- imps,
-                                          Cclass _ _ ik vs fds _ <- ids ] ++
+                                          Cclass _ _ ik vs fds _ _ <- ids ] ++
                  [ (iKName ik, vs, fds) | CImpSign _ _ (CSignature _ _ _ ids) <- imps,
-                                          CIclass _ _ ik vs fds _ <- ids ] ++
-                 [ (qualId mi (iKName ik), vs, fds) | Cclass _ _ ik vs fds _ <- ds ]
+                                          CIclass _ _ ik vs fds _ _ <- ids ] ++
+                 [ (qualId mi (iKName ik), vs, fds) | Cclass _ _ ik vs fds _ _ <- ds ]
 
         -- XXX imported fundeps don't need to be checked
         -- but it is simpler to check them while converting to bss
@@ -153,7 +153,17 @@ mkSymTab errh (CPackage mi _ imps _ ds _) =
         -- previous symbol table with types and classes added
         (symT, clsErrs) = mkTypeSyms errh mkQuals mmi iks ds insts simp
 
-        allClsErrs = impClsErrs ++ clsErrs
+        -- Check for type functions in non-determined instance head positions.
+        -- They are only permitted in positions that are soley determined by
+        -- functional dependencies and never used for instance matching.
+        -- This must happen on the raw definitions before context reduction
+        -- expands type functions in instance heads.
+        instHeadCheck = foldr seq ()
+            [ checkNoTypeFunInHead errh symT mi c (tyConArgs t)
+            | Cinstance (CQType _ t) _ <- ds
+            , let c = fromJustOrErr "mkSymTab: leftCon" (leftCon t) ]
+
+        allClsErrs = instHeadCheck `seq` (impClsErrs ++ clsErrs)
 
         -- finally, add constructors, fields, and variables
         -- XXX and something about top vars?
@@ -311,13 +321,13 @@ cmpQInsts bss q1@(QInst _ (_ :=> t1)) q2@(QInst _ (_ :=> t2)) = do
 -- equally specific instance heads are the same after alpha-renaming
 mkDuplicateError :: QInst -> QInst -> EMsg
 mkDuplicateError q1@(QInst _ (_ :=> t1)) q2@(QInst _ (_ :=> t2)) =
-  (getPosition t2, EDuplicateInstance (pfpReadable t1) (getPosition t1))
+  (getPosition t2, EDuplicateInstance (pfpString t1) (getPosition t1))
 
 
 -- bad overlapping instances (i.e. cannot be ordered)
 mkOverlapError :: QInst -> QInst -> EMsg
 mkOverlapError q1@(QInst _ (_ :=> t1)) q2@(QInst _ (_ :=> t2)) =
-  (getPosition t1, EBadInstanceOverlap (pfpReadable t1) (pfpReadable t2) (getPosition t2))
+  (getPosition t1, EBadInstanceOverlap (pfpString t1) (pfpString t2) (getPosition t2))
 
 chkFunDeps :: (Id, [Id], CFunDeps) -> [EMsg]
 chkFunDeps (cls, vs, fds) =
@@ -392,6 +402,35 @@ cConvInst :: ErrorHandle -> SymTab -> CPackage -> CPackage
 cConvInst errh r (CPackage mi exps imps fixs ds includes) =
         CPackage mi exps imps fixs (map (convInst errh mi r) ds) includes
 
+-- Check that no type function (TIatf) appears in the instance head.
+-- Only checks non-determined positions (positions not determined by a fundep).
+checkNoTypeFunInHead :: ErrorHandle -> SymTab -> Id -> Id -> [CType] -> ()
+checkNoTypeFunInHead errh r mi clsId args =
+    let -- A position is safe for type functions only if it is determined
+        -- (True) in EVERY functional dependency.  This ensures the position
+        -- is never used as a source for instance matching.
+        determinedIdxs = case findSClass r (CTypeclass clsId) of
+              Just cls | not (null (funDeps cls)) ->
+                S.fromList [ idx | idx <- [0 .. length (head (funDeps cls)) - 1]
+                           , all (\bs -> bs !! idx) (funDeps cls) ]
+              _ -> S.empty
+        isTypeFun i | Just (TypeInfo _ _ _ (TIatf {})) <- findType r i = True
+                    | otherwise = False
+        findTypeFun (TCon (TyCon i _ (TIatf {}))) = [(getPosition i, i)]
+        findTypeFun (TCon (TyCon i _ _))
+            | isTypeFun i = [(getPosition i, i)]
+            | otherwise = []
+        findTypeFun (TAp f a) = findTypeFun f ++ findTypeFun a
+        findTypeFun _ = []
+        -- Only check non-determined positions
+        nonDetArgs = [ arg | (idx, arg) <- zip [0..] args
+                     , not (S.member idx determinedIdxs) ]
+        found = concatMap findTypeFun nonDetArgs
+    in if null found then ()
+       else bsErrorUnsafe errh
+                [ (pos, EATFInInstanceHead (pfpString tfId))
+                | (pos, tfId) <- found ]
+
 convInst :: ErrorHandle -> Id -> SymTab -> CDefn -> CDefn
 convInst errh mi r di@(Cinstance qt@(CQType _ t) ds) =
     let c = fromJustOrErr "convInst: leftCon" (leftCon t)
@@ -413,7 +452,7 @@ convInst errh mi r di@(Cinstance qt@(CQType _ t) ds) =
                                -- not this type
                                bsErrorUnsafe errh
                                  [(getPosition i,
-                                   ENotField (pfpReadable c) (pfpReadable i))]
+                                   ENotField (pfpString c) (pfpString i))]
                          _ -> -- this should not occur because there should
                               -- only be one FieldInfo entry for a given type
                               internalError("MakeSymTab.clsMethType: " ++
@@ -552,7 +591,7 @@ getFields mi s (Cstruct vis _ ik vs ifs fieldNames) =
   in  -- traces ("getFields: " ++ ppReadable fieldNames ++ "\nn2: " ) $
       map generatorf ifs
 
-getFields mi s (Cclass _ ps ik vs _ ifs) =
+getFields mi s (Cclass _ ps ik vs _ _ ifs) =
         let cls = mustFindClass s i
             i = CTypeclass (iKName ik)
             zfunc :: (CTypeclass,Pred) -> CPred -> CField
@@ -575,7 +614,7 @@ getFields _ _ _ = []
 -- first takes in all the type variables (and those of the typeclass
 -- will be first) and then takes in the dictionaries for each context.
 getMethods :: Maybe Id -> SymTab -> CDefn -> [Assump]
-getMethods mi s (Cclass _ _ ik vs _ ifs) =
+getMethods mi s (Cclass _ _ ik vs _ _ ifs) =
         let f (CField { cf_name = fi, cf_type = CQType ps t }) =
                 qual mi fi :>:
                      mustConvCQType s vs (CQType (CPred (CTypeclass i) (map cTVar vs):ps) t)
@@ -657,9 +696,9 @@ mkTypeSyms errh mkQuals maybePackageName iks defs qts s =
         (cls, errss) =
             unzip $
               [ getCls errh maybePackageName iks r incoh ps ik vs fds ifs qts
-                    | Cclass  incoh ps ik vs fds ifs <- defs ] ++
+                    | Cclass  incoh ps ik vs fds _ ifs <- defs ] ++
               [ getCls errh maybePackageName iks r incoh ps ik vs fds []  qts
-                    | CIclass incoh ps ik vs fds _   <- defs ]
+                    | CIclass incoh ps ik vs fds _ _   <- defs ]
         r = addClasses mkQuals (addTypes mkQuals s importedTypeInfos) cls
     in  (r, concat errss)
 
@@ -684,20 +723,23 @@ getTI _ mi _ iks data_decl@(Cdata {}) =
 getTI _ mi _ iks (Cstruct _ ss ik vs fs _) =
     [(i, TypeInfo (Just i) (getK iks ik) vs (TIstruct ss (map cf_name fs)))]
   where i = qual mi (iKName ik)
-getTI _ mi _ iks (Cclass _ ps ik vs _ fs) =
-    [(i, TypeInfo (Just i) k vs ti)]
+getTI errh mi _ iks (Cclass _ ps ik vs fds ats fs) =
+    checkATFParams errh (iKName ik) vs fds ats `seq`
+    (i, TypeInfo (Just i) k vs ti) : mkATFTIs mi i vs ks ats
   where i = qual mi (iKName ik)
         k = getK iks ik
+        ks = getArgKinds k
         ti = TIstruct SClass
                  (map cf_name fs ++
                   map (\ (CPred (CTypeclass i) _) -> i) ps) -- XXX super
 getTI _ mi _ iks (CItype ik vs _) =
     [(i, TypeInfo (Just i) (getK iks ik) vs TIabstract)]
   where i = qual mi (iKName ik)
-getTI _ mi _ iks (CIclass _ ps ik vs _ _) =
-    [(i, TypeInfo (Just i) k vs ti)]
+getTI _ mi _ iks (CIclass _ ps ik vs _ ats _) =
+    (i, TypeInfo (Just i) k vs ti) : mkATFTIs mi i vs ks ats
   where i = qual mi (iKName ik)
         k = getK iks ik
+        ks = getArgKinds k
         ti = TIstruct SClass (map (\ (CPred (CTypeclass i) _) -> i) ps)
 getTI _ mi _ iks (CprimType ik) =
     [(i, TypeInfo (Just i) (getK iks ik) vs TIabstract)]
@@ -705,6 +747,72 @@ getTI _ mi _ iks (CprimType ik) =
         -- the CSyntax doesn't provide type var names
         vs = []
 getTI _ _ _ iks _ = []
+
+-- Validate that all ATF parameters and RHS are class type variables,
+-- that there are no duplicates, and that the RHS is determined by
+-- the parameters via at least one functional dependency.
+checkATFParams :: ErrorHandle -> Id -> [Id] -> CFunDeps -> [CAssocDepFun] -> ()
+checkATFParams errh className vs fds ats =
+    if null errs then () else bsErrorUnsafe errh errs
+  where
+    vs_set = S.fromList vs
+    paramErrs = [ (getPosition ca_name,
+                EATFDeclParamMismatch (pfpString className)
+                  (pfpString ca_name) (map pfpString vs) (pfpString badV))
+             | CAssocDepFun ca_name ca_params ca_rhs <- ats
+             , badV <-
+                 -- Check params are class type variables
+                 [ p | p <- ca_params, not (S.member p vs_set) ] ++
+                 -- Check RHS is a class type variable
+                 [ ca_rhs | not (S.member ca_rhs vs_set) ]
+             ]
+    dupErrs = [ (getPosition ca_name,
+                EATFDeclDuplicateParam (pfpString ca_name) (pfpString p))
+             | CAssocDepFun ca_name ca_params _ <- ats
+             , p <- findDups ca_params
+             ]
+    findDups [] = []
+    findDups (x:xs) | x `elem` xs = [x]
+                    | otherwise    = findDups xs
+    paramIsResultErrs = [ (getPosition ca_name,
+                EATFDeclParamIsResult (pfpString ca_name) (pfpString ca_rhs))
+             | CAssocDepFun ca_name ca_params ca_rhs <- ats
+             , ca_rhs `elem` ca_params
+             ]
+    -- Check that the RHS is determined by the params via at least one fundep
+    fundepErrs = [ (getPosition ca_name,
+                EATFResultNotDetermined (pfpString ca_name)
+                  (pfpString ca_rhs) (map pfpString ca_params))
+             | CAssocDepFun ca_name ca_params ca_rhs <- ats
+             , let param_set = S.fromList ca_params
+                   -- Check: exists a fundep (srcs, tgts) where
+                   -- all srcs are in param_set and ca_rhs is in tgts
+                   isDetermined = any (\(srcs, tgts) ->
+                       all (`S.member` param_set) srcs &&
+                       ca_rhs `elem` tgts) fds
+             , not isDetermined
+             ]
+    tvErrs = paramErrs ++ dupErrs ++ paramIsResultErrs
+    errs = if null tvErrs then fundepErrs else tvErrs
+
+-- Build TypeInfo entries for associated type functions in a class.
+-- Shared between Cclass and CIclass cases of getTI.
+mkATFTIs :: Maybe Id -> Id -> [Id] -> [Kind] -> [CAssocDepFun] -> [(Id, TypeInfo)]
+mkATFTIs mi classId vs ks ats =
+    [ (atf_i, TypeInfo (Just atf_i) atf_k ca_params
+        (TIatf { atf_class_id   = classId
+               , atf_param_idxs = p_idxs
+               , atf_target_idx = t_idx }))
+    | CAssocDepFun ca_name ca_params ca_rhs <- ats
+    , let param_ks = [ M.findWithDefault KStar p vs_kind_map | p <- ca_params ]
+          result_k = M.findWithDefault KStar ca_rhs vs_kind_map
+          atf_k    = foldr Kfun result_k param_ks
+          atf_i    = qual mi ca_name
+          p_idxs   = [ M.findWithDefault (-1) p vs_idx_map | p <- ca_params ]
+          t_idx    = M.findWithDefault (-1) ca_rhs vs_idx_map
+    ]
+  where vs_kind_map = M.fromList (zip vs ks)
+        vs_idx_map  = M.fromList (zip vs [0..])
 
 qual :: Maybe Id -> Id -> Id
 qual Nothing i = i

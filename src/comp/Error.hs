@@ -700,6 +700,11 @@ data ErrMsg =
         | ETypeSynRecursive [String]
         | EDuplicateInstance String Position
         | EBadInstanceOverlap String String Position
+        | EATFDeclParamMismatch String String [String] String -- ^ class name, ATF name, expected param names, actual param
+        | EATFDeclDuplicateParam String String              -- ^ ATF name, duplicate param
+        | EATFDeclParamIsResult String String               -- ^ ATF name, param that is also result
+        | EATFResultNotDetermined String String [String]     -- ^ ATF name, result var, params
+        | EATFInInstanceHead String  -- ^ type function name
 
         | EUndefinedTask String
         | EUnboundCon String (Maybe String)
@@ -2965,6 +2970,38 @@ getErrorText (EConstrFieldsNotNamed c t) =
     (Type 151, empty,
      s2par ("Constructor " ++ quote c ++ " for type " ++ quote t ++
             " does not have named fields."))
+
+getErrorText (EATFDeclParamMismatch cls atf expected actual) =
+    (Type 152, empty,
+     s2par ("Type function declaration for " ++ ishow atf ++
+            " mentions type variable " ++ ishow actual ++
+            " not in the variables of its class " ++ ishow cls ++
+            ": " ++ intercalate ", " expected))
+
+getErrorText (EATFDeclDuplicateParam atf param) =
+    (Type 153, empty,
+     s2par ("Type function declaration for " ++ ishow atf ++
+            " has duplicate parameter " ++ ishow param))
+
+getErrorText (EATFDeclParamIsResult atf param) =
+    (Type 154, empty,
+     s2par ("Type function declaration for " ++ ishow atf ++
+            " uses " ++ ishow param ++
+            " as both a parameter and the result"))
+
+getErrorText (EATFResultNotDetermined atf result params) =
+    (Type 155, empty,
+     s2par ("Type function " ++ ishow atf ++
+            " has result variable " ++ ishow result ++
+            " that is not determined by " ++ paramWord ++
+            " " ++ intercalate ", " (map ishow params) ++
+            " via any functional dependency"))
+  where paramWord = if length params == 1 then "parameter" else "parameters"
+
+getErrorText (EATFInInstanceHead atf) =
+    (Type 156, empty,
+     s2par ("Type function " ++ ishow atf ++
+            " cannot be used in an instance head"))
 
 -- Generation Errors
 

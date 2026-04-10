@@ -41,7 +41,6 @@ module CVPrint (
         getName,
         getLName,
         isTDef,
-        getNK,
         HasPosition(..),
         StructSubType(..),
         pvpId, pvParameterTypes) where
@@ -258,14 +257,15 @@ instance PVPrint CDefn where
 
     pvPrint d p (CValueSign def) = pvPrint d p def
 
-    pvPrint d p (Cclass Nothing ps ik is fd ss) =
+    pvPrint d p (Cclass Nothing ps ik is fd ats ss) =
        ((pBlockNT d 0 False
         [t"typeclass" <+> pp d ik <+> pvParameterTypeVars d is,
          pvpFDs d fd,
          if ps==[]
            then empty
            else t "  provisos (" <> sepList (map (pvPrint d 0) ps) (t",") <> t")"] empty)<> (t";")) $+$
-       pBlockNT d 4 False (map (\s -> ppField d (t"function") True s <> t";") ss) empty $+$
+       pBlockNT d 4 False (map (pvpAssocDepFun d) ats ++
+                            map (\s -> ppField d (t"function") True s <> t";") ss) empty $+$
        t"endtypeclass"
 
     pvPrint d p (Cinstance (CQType ps ty) ds) =
@@ -398,10 +398,15 @@ ppIfcPrags d (Just xs) = if (null filtered) then empty else prt
 
 pvpFDs :: PDetail -> CFunDeps -> Doc
 pvpFDs d [] = empty
-pvpFDs d fd = text "  dependencies" <+> sepList (map (pvpFD d) fd) (t",")
+pvpFDs d fd = text "  dependencies" <+> t"(" <> sepList (map (pvpFD d) fd) (t",") <> t")"
 
 pvpFD :: PDetail -> ([Id], [Id]) -> Doc
-pvpFD d (as,rs) = sep (map (pvpId d) as) <+> t "->" <+> sep (map (pvpId d) rs)
+pvpFD d (as,rs) = sep (map (pvpId d) as) <+> t "determines" <+> sep (map (pvpId d) rs)
+
+pvpAssocDepFun :: PDetail -> CAssocDepFun -> Doc
+pvpAssocDepFun d (CAssocDepFun name ps rhs) =
+    t"type" <+> pvPrint d 0 name <>
+    pvParameterTypeVars d ps <+> t"=" <+> pvpId d rhs <> t";"
 
 {-
 ppFDs d [] = t""
@@ -1253,6 +1258,8 @@ instance PVPrint TISort where
     pvPrint d p (TIdata is enum) = pparen (p>0) $ text (if enum then "TIdata (enum)" else "TIdata") <+> pvPrint d 1 is
     pvPrint d p (TIstruct ss is) = pparen (p>0) $ text "TIstruct" <+> pvPrint d 1 ss <+> pvPrint d 1 is
     pvPrint d p (TIabstract) = text "TIabstract"
+    pvPrint d p (TIatf { atf_class_id = cls, atf_param_idxs = pIdxs }) =
+        pparen (p>0) $ text "TIatf" <+> pvPrint d 0 (length pIdxs) <+> pvPrint d 0 cls
 
 instance PVPrint StructSubType where
     pvPrint _ _ ss = text (show ss)

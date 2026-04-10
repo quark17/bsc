@@ -35,7 +35,7 @@ import Pragma
 -- XXX
 import IOUtil(progArgs)
 
-infix 6 >>>> , >>>>> , >>>>>> , >>>>>>> , {- >>>>>>>> , -} >>>>>>>>>
+infix 6 >>>> , >>>>> , >>>>>> , {- >>>>>>> , >>>>>>>> , -} >>>>>>>>>
 
 -- XXX
 useLayout :: Bool
@@ -415,7 +415,18 @@ pTyDefn b = l L_foreign ..+ pVarId +.+ dc ..+ pQType +.+ opt (eq ..+ pString) +.
                 (\ (ik,(vs,(vis,(fs,der)))) -> Cstruct vis SStruct ik vs fs der)
         ||! l L_interface ..+ pTyConIdK +.+ many pTyVarId +.+ pIfcPrags +.+ eql b  +.+ blockOf noTrig pQStructField +.+ pDer >>-
                 (\ (ik,(vs,(ps,(vis,(fs,der))))) -> Cstruct vis (SInterface ps) ik vs fs der)
-        ||! l L_class ..+ pOptCoherence +.+ pPreds +.+ pTyConIdK +.+ many pTyVarId +.+ pFunDeps +.+ l L_where ..+ blockOf noTrig pQStructField        >>>>>>>  Cclass
+        ||! l L_class ..+ pOptCoherence +.+ pPreds +.+ pTyConIdK +.+ many pTyVarId +.+ pFunDeps +.+ l L_where ..+ blockOf noTrig pClassBodyItem        >>- \ (incoh,(ps,(ik,(vs,(fds,items))))) ->
+                let ats = [x | Left  x <- items]
+                    fs  = [x | Right x <- items]
+                in  Cclass incoh ps ik vs fds ats fs
+
+pClassBodyItem :: CParser (Either CAssocDepFun CField)
+pClassBodyItem =
+      (-- Accept "type Repr a = r" where a and r are class param variables.
+       l L_type ..+ pTyConId +.+ many pTyVarId +.+ eq ..+ pTyVarId
+           >>- \ (name, (args, rhs)) ->
+               Left (CAssocDepFun name args rhs))
+  ||! (pQStructField >>- Right)
 
 pOptCoherence :: CParser (Maybe Bool)
 pOptCoherence = option pCoherence
@@ -862,8 +873,8 @@ noTrig = mkPosition fsEmpty 0 (-1)
             -> (b -> c -> d -> e -> f) -> Parser a f
 (>>>>>>)    :: Parser a (b, (c, (d, (e, f))))
             -> (b -> c -> d -> e -> f -> g) -> Parser a g
-(>>>>>>>)   :: Parser a (b, (c, (d, (e, (f, g)))))
-            -> (b -> c -> d -> e -> f -> g -> h) -> Parser a h
+--(>>>>>>>)   :: Parser a (b, (c, (d, (e, (f, g)))))
+--            -> (b -> c -> d -> e -> f -> g -> h) -> Parser a h
 --(>>>>>>>>)  :: Parser a (b, (c, (d, (e, (f, (g, h))))))
 --            -> (b -> c -> d -> e -> f -> g -> h -> i) -> Parser a i
 (>>>>>>>>>) :: Parser a (b, (c, (d, (e, (f, (g, (h, i)))))))

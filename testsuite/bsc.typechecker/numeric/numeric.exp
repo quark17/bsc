@@ -229,6 +229,7 @@ compile_pass Add_SameType.bsv
 # ---------------
 # Test that ambiguous variables due to uses of TLog etc are detected
 
+# SizeOf is a type function in the Bits class, so the ambiguous 't' is detected
 compile_fail_error AmbigTCon_SizeOf.bsv T0079
 
 compile_fail_error AmbigTCon_TAdd.bsv T0079

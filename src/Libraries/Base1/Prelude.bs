@@ -401,6 +401,7 @@ class (Monad m) => MonadFix m where
 --@ endtypeclass
 --@ \end{libverbatim}
 class coherent Bits a n | a -> n where
+    type SizeOf a = n
     pack   :: a -> Bit n
     unpack :: Bit n -> a
 
@@ -790,6 +791,8 @@ class (MonadFix m) => IsModule m c | m -> c where
     liftModule     :: Module a -> m a
     liftModuleOp   :: (Module (c a) -> Module (c b)) -> m a -> m b
 
+-- This sadly can't be defined as an associated type function of a Refl type class,
+-- since we currently require that type functions must be fully applied.
 primitive type Id__ :: * -> *
 
 instance IsModule Module Id__ where
@@ -2908,8 +2911,6 @@ instance Eq Reset
    (==) x y = primChr (primResetEQ x y)
    (/=) x y = primChr (primBNot (primResetEQ x y))
 
-primitive type SizeOf :: * -> #
-
 primitive type TAdd :: # -> # -> #
 primitive type TSub :: # -> # -> #
 primitive type TMul :: # -> # -> #
@@ -3799,6 +3800,16 @@ arrayLength a =
 
 primArrayNewU :: Integer -> Array a
 primArrayNewU k = primArrayNew k _
+
+instance Functor Array
+  where
+    fmap :: (a -> b) -> Array a -> Array b
+    fmap f v =
+      let buildResult :: Integer -> Array b -> Array b
+          buildResult i arr =
+            if i < 0 then arr
+            else buildResult (i - 1) (primArrayUpdate arr i (f (primArraySelect v i)))
+      in buildResult (primArrayLength v - 1) (primArrayNewU (primArrayLength v))
 
 instance PrimSelectable (Array a) a
   where
