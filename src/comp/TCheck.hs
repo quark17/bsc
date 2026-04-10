@@ -404,7 +404,13 @@ tiExpr as td exp@(CApply f@(CVar vo) [e@(CHasType _ t)]) | vo == idValueOf = do
     let vs = nub (tv t)
     bvs <- getBoundTVs
     case vs \\ bvs of
-        [] -> tiApply as td exp f e
+        [] -> do
+                 let base_t = case t of
+                                CQType [] bt -> bt
+                                _ -> internalError "tiExpr ValueOf base_t"
+                 (tcon_ps, _) <- expTFun base_t
+                 (ap_ps, exp') <- tiApply as td exp f e
+                 return (tcon_ps ++ ap_ps, exp')
         v : _ -> err (getPosition exp, EValueOf (pfpString v))
 
 tiExpr as td exp@(CApply f@(CVar vo) [e@(CHasType _ t)]) | vo == idStringOf = do

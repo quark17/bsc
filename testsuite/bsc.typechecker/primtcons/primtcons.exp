@@ -34,4 +34,24 @@ compile_verilog_pass ExpSizeOf_Field.bsv
 compile_verilog_pass ExpSizeOf_FieldSyn.bsv
 
 # ---------------
+# Test that SizeOf is expanded inside 'valueOf' (GitHub Issue #890)
 
+# This used to pass typecheck (and internal error in elaboration).
+# It should fail typecheck because a 'Bits' context is missing from
+# the caller.  The use of 'SizeOf' inside 'valueOf' should result in
+# inferring that a 'Bits' instance is needed.
+#
+compile_fail_error ExpSizeOf_ValueOf_NoCtx.bs T0030
+compare_file [make_bsc_output_name ExpSizeOf_ValueOf_NoCtx.bs]
+
+# Test that adding the Bits context allows it to compile
+compile_pass ExpSizeOf_ValueOf_WithCtx.bs
+
+# Prior to typecheck, 'valueOf' is desugared into a call with 'CHasType',
+# and some checking is performed during the CtxReduce stage.  This
+# catches certain kind errors:
+#
+compile_fail_error ValueOf_KindMismatch_Arity.bs T0025
+compile_fail_error ValueOf_KindMismatch_Res.bs T0026
+
+# ---------------
