@@ -47,6 +47,11 @@ compare_file [make_bsc_output_name ExpSizeOf_ValueOf_NoCtx.bs]
 # Test that adding the Bits context allows it to compile
 compile_pass ExpSizeOf_ValueOf_WithCtx.bs
 
+# Perform the same tests for 'stringOf'
+compile_fail_error ExpSizeOf_StringOf_NoCtx.bs T0030
+compare_file [make_bsc_output_name ExpSizeOf_StringOf_NoCtx.bs]
+compile_pass ExpSizeOf_StringOf_WithCtx.bs
+
 # Prior to typecheck, 'valueOf' is desugared into a call with 'CHasType',
 # and some checking is performed during the CtxReduce stage.  This
 # catches certain kind errors:

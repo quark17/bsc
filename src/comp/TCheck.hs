@@ -400,10 +400,18 @@ tiExpr as td exp@(CApply f@(CVar gn) es@[(CVar i)]) | gn `qualEq` idPrimGetName 
   -- need to make sure to qualify the primitive identifier for IConv
   return ([], (CApply (CVar idPrimGetName) es))
 
-tiExpr as td exp@(CApply f@(CVar vo) [e@(CHasType _ t)]) | vo == idValueOf = do
-    let vs = nub (tv t)
-    bvs <- getBoundTVs
-    case vs \\ bvs of
+-- Pseudo-functions on types (valueOf and stringOf) are desugared
+-- into ordinary functions on dummy arguments with explicit types.
+-- This can be typechecked as normal, but we handle them specially
+-- here so that an error can be reported if the type contains any
+-- unknown variables.
+--
+tiExpr as td exp@(CApply f@(CVar pfunc) [e@(CHasType _ t)])
+  | (pfunc == idValueOf) || (pfunc == idStringOf)
+  = do
+      let vs = nub (tv t)
+      bvs <- getBoundTVs
+      case vs \\ bvs of
         [] -> do
                  let base_t = case t of
                                 CQType [] bt -> bt
@@ -411,14 +419,9 @@ tiExpr as td exp@(CApply f@(CVar vo) [e@(CHasType _ t)]) | vo == idValueOf = do
                  (tcon_ps, _) <- expTFun base_t
                  (ap_ps, exp') <- tiApply as td exp f e
                  return (tcon_ps ++ ap_ps, exp')
-        v : _ -> err (getPosition exp, EValueOf (pfpString v))
-
-tiExpr as td exp@(CApply f@(CVar vo) [e@(CHasType _ t)]) | vo == idStringOf = do
-    let vs = nub (tv t)
-    bvs <- getBoundTVs
-    case vs \\ bvs of
-        [] -> tiApply as td exp f e
-        v : _ -> err (getPosition exp, EStringOf (pfpString v))
+        v : _ -> let econ = if (pfunc == idValueOf)
+                            then EValueOf else EStringOf
+                 in  err (getPosition exp, econ (pfpString v))
 
 tiExpr as td (CApply e []) = tiExpr as td e
 tiExpr as td exp@(CApply f [e]) = tiApply as td exp f e
