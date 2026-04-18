@@ -93,8 +93,8 @@ eqTypeNum flags symt r t1 t2
           addExplPreds eqs
           vp <- mkVPredFromPred [] (IsIn numEqCls [t1', t2'])
           satisfy eqs [vp]
-    in  case (fst $ runTI flags False symt satisfyEq) of
-          Right ([],_) -> True
+    in  case runTI flags False symt satisfyEq of
+          (Right ([],_), _, _) -> True
           res -> --trace("eqTypeNum: not satisfied: " ++ ppReadable (t1, t2, res)) $
                  False
  where isITAp (ITAp _ _) = True
@@ -259,7 +259,7 @@ atfEqsFromDict symt dictType =
            [ (atfApp, targetArg)
            | (atfId, TypeInfo _ atfK _ ti@(TIatf { atf_class_id = acId
                                                  , atf_param_idxs = pIdxs
-                                                 , atf_target_idx = tIdx }))
+                                                 , atf_target_idx = tIdx }) _)
                <- allTypes
            , acId == cid
            , tIdx < length classArgs
